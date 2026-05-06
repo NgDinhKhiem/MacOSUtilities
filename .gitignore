@@ -4,6 +4,7 @@ artifacts/
 .DS_Store
 .env
 .env.*
+!.env.example
 .secrets/
 *.token
 *.secret
@@ -21,4 +22,6 @@ github-token.txt
 *.p8
 *.mobileprovision
 *.keychain-db
+.env.example
+/docs
 /scripts
