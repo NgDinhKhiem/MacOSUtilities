@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: |
+          xcode-select -p
+          xcodebuild -version
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -project MacOSUtilities.xcodeproj \
+            -scheme MacOSUtilities \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-"
+
+      - name: Run unit tests
+        run: |
+          xcodebuild test \
+            -project MacOSUtilities.xcodeproj \
+            -scheme MacOSUtilities \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:MacOSUtilitiesTests \
+            CODE_SIGN_IDENTITY="-"

@@ -1,0 +1,115 @@
+name: Release macOS app
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update, for example v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, notarize, and publish DMG
+    runs-on: macos-latest
+
+    env:
+      RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+      APP_NAME: MacOSUtilities
+      PROJECT_PATH: ${{ github.workspace }}/MacOSUtilities.xcodeproj
+      SCHEME: MacOSUtilities
+      CONFIGURATION: Release
+      DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+      DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      DEVELOPER_ID_APPLICATION: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+      BUNDLE_ID_PREFIX: ${{ secrets.MACOS_BUNDLE_ID_PREFIX }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show Xcode version
+        run: |
+          xcode-select -p
+          xcodebuild -version
+
+      - name: Validate release secrets
+        run: |
+          missing=0
+          for name in \
+            DEVELOPER_ID_CERTIFICATE_BASE64 \
+            DEVELOPER_ID_CERTIFICATE_PASSWORD \
+            APPLE_ID \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            APPLE_TEAM_ID \
+            BUNDLE_ID_PREFIX
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::$name is required for a signed, notarized production release"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Import Developer ID certificate
+        env:
+          KEYCHAIN_PASSWORD: signing-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          if ! printf '%s' "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH" 2>/dev/null; then
+            printf '%s' "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 -D > "$CERTIFICATE_PATH"
+          fi
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security find-identity -p codesigning -v
+
+      - name: Build signed DMG
+        id: package
+        env:
+          CODE_SIGN_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION || 'Developer ID Application' }}
+          NOTARIZE: true
+        run: ./scripts/build_release_dmg.sh
+
+      - name: Publish GitHub release
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --target "$GITHUB_SHA" \
+              --title "MacOSUtilities $RELEASE_TAG" \
+              --generate-notes
+          fi
