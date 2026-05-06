@@ -4,6 +4,10 @@ artifacts/
 .DS_Store
 .env
 .env.*
+.secrets/
+*.token
+*.secret
+github-token.txt
 *.xcuserstate
 **/xcuserdata/
 *.xcarchive
@@ -17,3 +21,4 @@ artifacts/
 *.p8
 *.mobileprovision
 *.keychain-db
+/scripts
