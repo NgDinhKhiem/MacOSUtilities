@@ -7,7 +7,14 @@ enum ClipboardHistoryActivationMode {
 }
 
 private enum ClipboardRowMetrics {
-    static let rowHeight: CGFloat = 54
+    static let rowHeight: CGFloat = 46
+    static let listSpacing: CGFloat = 4
+    static let panelRowHorizontalPadding: CGFloat = 10
+    static let panelRowVerticalPadding: CGFloat = 4
+    static let rowBackgroundHorizontalInset: CGFloat = 4
+    static let rowBackgroundVerticalInset: CGFloat = 1
+    static let previewIconSize: CGFloat = 30
+    static let swipeActionIconSize: CGFloat = 28
     static let deleteThreshold: CGFloat = 150
     static let maximumHorizontalDrag: CGFloat = 190
 }
@@ -162,7 +169,7 @@ struct ClipboardHistoryListView: View {
                     .listStyle(.sidebar)
                 case .restoreOnClick(let restore):
                     ScrollView {
-                        LazyVStack(spacing: 7) {
+                        LazyVStack(spacing: ClipboardRowMetrics.listSpacing) {
                             ForEach(store.entries) { entry in
                                 ClipboardHistoryRow(
                                     entry: entry,
@@ -372,13 +379,13 @@ private struct ClipboardHistoryRow: View {
                 .animation(.easeOut(duration: 0.18), value: horizontalDragOffset)
                 .animation(.easeOut(duration: 0.18), value: isDragging)
         }
-        .frame(height: isPanel ? ClipboardRowMetrics.rowHeight : 48)
+        .frame(height: isPanel ? ClipboardRowMetrics.rowHeight : 44)
         .contentShape(Rectangle())
         .help(dragHelpText)
     }
 
     private var rowContent: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             ClipboardPreviewIcon(
                 entry: entry,
                 isSelected: isSelected,
@@ -393,8 +400,8 @@ private struct ClipboardHistoryRow: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, isPanel ? 12 : 0)
-        .padding(.vertical, isPanel ? 6 : 4)
+        .padding(.horizontal, isPanel ? ClipboardRowMetrics.panelRowHorizontalPadding : 0)
+        .padding(.vertical, isPanel ? ClipboardRowMetrics.panelRowVerticalPadding : 3)
         .background {
             if isSelected && isPanel {
                 RoundedRectangle(cornerRadius: 6)
@@ -409,24 +416,24 @@ private struct ClipboardHistoryRow: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, ClipboardRowMetrics.rowBackgroundHorizontalInset)
+                    .padding(.vertical, ClipboardRowMetrics.rowBackgroundVerticalInset)
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, ClipboardRowMetrics.rowBackgroundHorizontalInset)
+                            .padding(.vertical, ClipboardRowMetrics.rowBackgroundVerticalInset)
                     }
             } else if isPanel {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(.ultraThinMaterial)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, ClipboardRowMetrics.rowBackgroundHorizontalInset)
+                    .padding(.vertical, ClipboardRowMetrics.rowBackgroundVerticalInset)
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, ClipboardRowMetrics.rowBackgroundHorizontalInset)
+                            .padding(.vertical, ClipboardRowMetrics.rowBackgroundVerticalInset)
                     }
             }
         }
@@ -464,7 +471,7 @@ private struct ClipboardHistoryRow: View {
             if horizontalDragOffset > 0 {
                 if allowsBookmarkSwipe {
                     actionIcon(for: .bookmark)
-                        .padding(.leading, 16)
+                        .padding(.leading, 14)
                 }
 
                 Spacer()
@@ -472,20 +479,20 @@ private struct ClipboardHistoryRow: View {
                 Spacer()
 
                 actionIcon(for: .delete)
-                    .padding(.trailing, 16)
+                    .padding(.trailing, 14)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             RoundedRectangle(cornerRadius: 6)
                 .fill(backdropColor.opacity(0.10 + (0.24 * actionProgress)))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .padding(.horizontal, ClipboardRowMetrics.rowBackgroundHorizontalInset)
+                .padding(.vertical, ClipboardRowMetrics.rowBackgroundVerticalInset)
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
                         .strokeBorder(backdropColor.opacity(0.22 + (0.25 * actionProgress)), lineWidth: 0.7)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, ClipboardRowMetrics.rowBackgroundHorizontalInset)
+                        .padding(.vertical, ClipboardRowMetrics.rowBackgroundVerticalInset)
                 }
         }
         .opacity(isDragging && abs(horizontalDragOffset) > 8 ? 1 : 0)
@@ -502,7 +509,7 @@ private struct ClipboardHistoryRow: View {
         return Image(systemName: isTarget ? action.activeSystemImage : action.systemImage)
             .font(.system(size: 14, weight: .bold))
             .foregroundStyle(.white)
-            .frame(width: 30, height: 30)
+            .frame(width: ClipboardRowMetrics.swipeActionIconSize, height: ClipboardRowMetrics.swipeActionIconSize)
             .background {
                 Circle()
                     .fill(action.color)
@@ -540,7 +547,7 @@ struct LongTermClipboardListView: View {
                 .padding(.horizontal, 12)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 7) {
+                    LazyVStack(spacing: ClipboardRowMetrics.listSpacing) {
                         ForEach(store.entries) { entry in
                             ClipboardHistoryRow(
                                 entry: entry.entry,
@@ -820,15 +827,15 @@ private struct ClipboardPreviewIcon: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 34, height: 34)
+                    .frame(width: ClipboardRowMetrics.previewIconSize, height: ClipboardRowMetrics.previewIconSize)
                     .clipShape(RoundedRectangle(cornerRadius: GlassmorphismStyle.iconCornerRadius, style: .continuous))
             } else {
                 Image(systemName: entry.preview.systemImage)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(isSelected && isPanel ? .white : .secondary)
             }
         }
-        .frame(width: 34, height: 34)
+        .frame(width: ClipboardRowMetrics.previewIconSize, height: ClipboardRowMetrics.previewIconSize)
         .overlay {
             RoundedRectangle(cornerRadius: GlassmorphismStyle.iconCornerRadius, style: .continuous)
                 .strokeBorder(iconBorder, lineWidth: 0.6)

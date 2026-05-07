@@ -2,7 +2,14 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
-enum HotKeyPreset: String, CaseIterable, Identifiable {
+protocol GlobalHotKeyPreset {
+    var displayName: String { get }
+    var carbonKeyCode: UInt32 { get }
+    var carbonModifiers: UInt32 { get }
+    var hotKeyID: UInt32 { get }
+}
+
+enum HotKeyPreset: String, CaseIterable, Identifiable, GlobalHotKeyPreset {
     case commandShiftV
     case commandOptionV
     case controlOptionV
@@ -47,14 +54,53 @@ enum HotKeyPreset: String, CaseIterable, Identifiable {
     }
 }
 
+enum CaptureHotKeyPreset: String, CaseIterable, Identifiable, GlobalHotKeyPreset {
+    case commandShiftX
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .commandShiftX:
+            return "Command-Shift-X"
+        }
+    }
+
+    var carbonKeyCode: UInt32 {
+        UInt32(kVK_ANSI_X)
+    }
+
+    var carbonModifiers: UInt32 {
+        switch self {
+        case .commandShiftX:
+            return UInt32(cmdKey) | UInt32(shiftKey)
+        }
+    }
+
+    var hotKeyID: UInt32 {
+        switch self {
+        case .commandShiftX:
+            return 20
+        }
+    }
+}
+
 @MainActor
 final class GlobalHotKeyService {
     private var hotKeyRef: EventHotKeyRef?
+    private var registeredHotKeyID: EventHotKeyID?
     private var eventHandlerRef: EventHandlerRef?
     private var action: (() -> Void)?
-    private let signature = fourCharacterCode("MCUH")
+    private let signature: OSType
+    private let logName: String
 
-    func register(preset: HotKeyPreset, action: @escaping () -> Void) {
+    init(signature: String = "MCUH", logName: String = "global") {
+        self.signature = fourCharacterCode(signature)
+        self.logName = logName
+    }
+
+    @discardableResult
+    func register<Preset: GlobalHotKeyPreset>(preset: Preset, action: @escaping () -> Void) -> Bool {
         self.action = action
         installEventHandlerIfNeeded()
         unregisterHotKey()
@@ -70,8 +116,13 @@ final class GlobalHotKeyService {
         )
 
         if status != noErr {
-            NSLog("Unable to register clipboard history hotkey %@. OSStatus: %d", preset.displayName, status)
+            NSLog("Unable to register %@ hotkey %@. OSStatus: %d", logName, preset.displayName, status)
+            registeredHotKeyID = nil
+            return false
         }
+
+        registeredHotKeyID = hotKeyID
+        return true
     }
 
     func unregister() {
@@ -98,12 +149,16 @@ final class GlobalHotKeyService {
         let userData = Unmanaged.passUnretained(self).toOpaque()
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
-            { _, _, userData in
-                guard let userData else {
-                    return noErr
+            { _, event, userData in
+                guard let event, let userData else {
+                    return OSStatus(eventNotHandledErr)
                 }
 
                 let service = Unmanaged<GlobalHotKeyService>.fromOpaque(userData).takeUnretainedValue()
+                guard service.handles(event: event) else {
+                    return OSStatus(eventNotHandledErr)
+                }
+
                 Task { @MainActor in
                     service.action?()
                 }
@@ -117,7 +172,7 @@ final class GlobalHotKeyService {
         )
 
         if status != noErr {
-            NSLog("Unable to install clipboard history hotkey handler. OSStatus: %d", status)
+            NSLog("Unable to install %@ hotkey handler. OSStatus: %d", logName, status)
         }
     }
 
@@ -126,6 +181,32 @@ final class GlobalHotKeyService {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
+
+        registeredHotKeyID = nil
+    }
+
+    private func handles(event: EventRef) -> Bool {
+        guard let registeredHotKeyID else {
+            return false
+        }
+
+        var pressedHotKeyID = EventHotKeyID()
+        let status = GetEventParameter(
+            event,
+            EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID),
+            nil,
+            MemoryLayout<EventHotKeyID>.size,
+            nil,
+            &pressedHotKeyID
+        )
+
+        guard status == noErr else {
+            return false
+        }
+
+        return pressedHotKeyID.signature == registeredHotKeyID.signature
+            && pressedHotKeyID.id == registeredHotKeyID.id
     }
 }
 
