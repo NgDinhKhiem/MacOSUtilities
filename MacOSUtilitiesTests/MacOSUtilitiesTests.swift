@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import Carbon.HIToolbox
 @testable import MacOSUtilities
 
 struct MacOSUtilitiesTests {
@@ -187,6 +188,216 @@ struct MacOSUtilitiesTests {
         #expect(writer.items == entry.items)
     }
 
+    @Test func screenshotSelectionNormalizesDraggedCoordinates() {
+        let rect = CGRect(x: 120, y: 90, width: -44, height: -28).normalizedForScreenshot
+
+        #expect(rect.origin == CGPoint(x: 76, y: 62))
+        #expect(rect.size == CGSize(width: 44, height: 28))
+    }
+
+    @MainActor
+    @Test func screenshotSessionExportsStoredAndDraftAnnotations() {
+        let session = ScreenshotCaptureSession(
+            image: NSImage(size: CGSize(width: 100, height: 80)),
+            screenFrame: NSRect(x: 0, y: 0, width: 100, height: 80),
+            pixelWidth: 200
+        )
+        let stored = ScreenshotAnnotation(
+            kind: .rectangle,
+            points: [CGPoint(x: 10, y: 10), CGPoint(x: 40, y: 30)],
+            color: .orange
+        )
+        let draft = ScreenshotAnnotation(
+            kind: .arrow,
+            points: [CGPoint(x: 30, y: 25), CGPoint(x: 70, y: 55)],
+            color: .red
+        )
+
+        session.annotations = [stored]
+        session.draftAnnotation = draft
+
+        #expect(session.pixelScale == 2)
+        #expect(session.exportAnnotations.map(\.id) == [stored.id, draft.id])
+    }
+
+    @MainActor
+    @Test func screenshotSessionDoesNotExportDuplicateDraftAnnotations() {
+        let session = ScreenshotCaptureSession(
+            image: NSImage(size: CGSize(width: 100, height: 80)),
+            screenFrame: NSRect(x: 0, y: 0, width: 100, height: 80),
+            pixelWidth: 100
+        )
+        let annotation = ScreenshotAnnotation(
+            kind: .rectangle,
+            points: [CGPoint(x: 10, y: 10), CGPoint(x: 40, y: 30)],
+            color: .orange
+        )
+
+        session.annotations = [annotation]
+        session.draftAnnotation = annotation
+
+        #expect(session.exportAnnotations.map(\.id) == [annotation.id])
+    }
+
+    @Test func screenshotTextSizeClampsToSupportedRange() {
+        #expect(ScreenshotAnnotation.clampedTextSize(2) == ScreenshotAnnotation.minTextSize)
+        #expect(ScreenshotAnnotation.clampedTextSize(500) == ScreenshotAnnotation.maxTextSize)
+        #expect(ScreenshotAnnotation.clampedTextSize(24) == 24)
+    }
+
+    @Test func screenshotTextBoundsUseMeasuredFontMetrics() {
+        let annotation = ScreenshotAnnotation(
+            kind: .text,
+            points: [CGPoint(x: 18, y: 24)],
+            color: .orange,
+            text: "Hello\nWorld",
+            textSize: 22,
+            textFont: .mono
+        )
+
+        let bounds = annotation.approximateBounds
+
+        #expect(bounds?.origin == CGPoint(x: 18, y: 24))
+        #expect((bounds?.width ?? 0) > 0)
+        #expect((bounds?.width ?? 0) <= ScreenshotAnnotation.maxTextWidth)
+        #expect((bounds?.height ?? 0) > ScreenshotTextMetrics.minimumEditorSize.height)
+    }
+
+    @Test func screenshotTextBoundsDoNotUseEditorMinimumHeight() {
+        let annotation = ScreenshotAnnotation(
+            kind: .text,
+            points: [CGPoint(x: 18, y: 24)],
+            color: .orange,
+            text: "One line",
+            textSize: 18,
+            textFont: .system
+        )
+
+        let bounds = annotation.approximateBounds
+        let editorSize = ScreenshotTextMetrics.editorSize(
+            for: annotation.text,
+            textSize: annotation.textSize,
+            textFont: annotation.textFont
+        )
+
+        #expect((bounds?.height ?? 0) < editorSize.height)
+    }
+
+    @Test func screenshotTextEditorSizeClampsToMaximumWidth() {
+        let size = ScreenshotTextMetrics.editorSize(
+            for: String(repeating: "wide ", count: 80),
+            textSize: 20,
+            textFont: .system,
+            maxWidth: 180
+        )
+
+        #expect(size.width <= 180)
+        #expect(size.height > ScreenshotTextMetrics.minimumEditorSize.height)
+    }
+
+    @Test func screenshotMarkupPaletteOffersExpandedColorChoices() {
+        #expect(ScreenshotMarkupColor.allCases == [
+            .orange,
+            .white,
+            .black,
+            .red,
+            .yellow,
+            .green,
+            .blue,
+            .purple
+        ])
+    }
+
+    @Test func screenshotCommandPolicyCancelsTextBeforeDiscardingSession() {
+        #expect(ScreenshotSessionCommandPolicy.escape(activeTextEdit: true) == .cancelActiveText)
+        #expect(ScreenshotSessionCommandPolicy.escape(activeTextEdit: false) == .discard)
+    }
+
+    @Test func screenshotCommandPolicyKeepsPlainReturnInsideTextEditor() {
+        #expect(
+            ScreenshotSessionCommandPolicy.returnKey(
+                activeTextEdit: true,
+                commandPressed: false
+            ) == .passThrough
+        )
+        #expect(
+            ScreenshotSessionCommandPolicy.returnKey(
+                activeTextEdit: true,
+                commandPressed: true
+            ) == .confirmCopy
+        )
+        #expect(
+            ScreenshotSessionCommandPolicy.returnKey(
+                activeTextEdit: false,
+                commandPressed: false
+            ) == .confirmCopy
+        )
+    }
+
+    @Test func screenshotCommandPolicyUsesCommandShortcutsForCaptureActions() {
+        #expect(ScreenshotSessionCommandPolicy.copyShortcut() == .confirmCopy)
+        #expect(ScreenshotSessionCommandPolicy.selectAllShortcut(activeTextEdit: false) == .selectFullScreen)
+        #expect(ScreenshotSessionCommandPolicy.selectAllShortcut(activeTextEdit: true) == .passThrough)
+    }
+
+    @Test func screenshotCommandPolicyCommitsTextBeforeToolSwitch() {
+        #expect(ScreenshotSessionCommandPolicy.shouldCommitTextBeforeToolSwitch(activeTextEdit: true))
+        #expect(!ScreenshotSessionCommandPolicy.shouldCommitTextBeforeToolSwitch(activeTextEdit: false))
+    }
+
+    @MainActor
+    @Test func screenshotSessionExportsOnlyTextDraftsWithContent() {
+        let session = ScreenshotCaptureSession(
+            image: NSImage(size: CGSize(width: 100, height: 80)),
+            screenFrame: NSRect(x: 0, y: 0, width: 100, height: 80),
+            pixelWidth: 100
+        )
+        let emptyText = ScreenshotAnnotation(
+            kind: .text,
+            points: [CGPoint(x: 20, y: 20)],
+            color: .white,
+            text: "   "
+        )
+        let visibleText = ScreenshotAnnotation(
+            kind: .text,
+            points: [CGPoint(x: 20, y: 20)],
+            color: .white,
+            text: "Label"
+        )
+
+        session.draftAnnotation = emptyText
+        #expect(session.exportAnnotations.isEmpty)
+
+        session.draftAnnotation = visibleText
+        #expect(session.exportAnnotations.map(\.id) == [visibleText.id])
+    }
+
+    @MainActor
+    @Test func screenshotSessionCanSelectFullScreen() {
+        let session = ScreenshotCaptureSession(
+            image: NSImage(size: CGSize(width: 320, height: 200)),
+            screenFrame: NSRect(x: 50, y: 80, width: 320, height: 200),
+            pixelWidth: 640
+        )
+        session.selection = CGRect(x: 20, y: 30, width: 60, height: 70)
+        session.selectedTool = .rectangle
+        session.selectedAnnotationID = UUID()
+
+        session.selectFullScreen()
+
+        #expect(session.selection == CGRect(x: 0, y: 0, width: 320, height: 200))
+        #expect(session.selectedTool == .select)
+        #expect(session.selectedAnnotationID == nil)
+    }
+
+    @Test func captureHotKeyUsesFlameshotStylePreset() {
+        let preset = CaptureHotKeyPreset.commandShiftX
+
+        #expect(preset.displayName == "Command-Shift-X")
+        #expect(preset.carbonKeyCode == UInt32(kVK_ANSI_X))
+        #expect(preset.carbonModifiers == UInt32(cmdKey) | UInt32(shiftKey))
+    }
+
     private func makeEntry(text: String, capturedAt: Date = Date()) -> ClipboardHistoryEntry {
         ClipboardHistoryEntry(capturedAt: capturedAt, items: [
             ClipboardStoredItem(representations: [
@@ -200,6 +411,7 @@ struct MacOSUtilitiesTests {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("json")
     }
+
 }
 
 @MainActor

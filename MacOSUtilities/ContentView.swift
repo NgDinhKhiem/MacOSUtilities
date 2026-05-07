@@ -11,6 +11,7 @@ struct ContentView: View {
     @Binding var hotKeyPresetRawValue: String
 
     let showPanel: () -> Void
+    let showScreenshotOverlay: () -> Void
 
     @State private var isShowingSettings = false
 
@@ -23,6 +24,15 @@ struct ContentView: View {
             .navigationTitle("Clipboard")
             .navigationSplitViewColumnWidth(min: 260, ideal: 320)
             .toolbar {
+                ToolbarItem {
+                    Button(action: showScreenshotOverlay) {
+                        Image(systemName: "camera.viewfinder")
+                    }
+                    .buttonStyle(GlassIconButtonStyle(tint: .orange, size: 30, isProminent: true))
+                    .accessibilityLabel("Capture Screenshot")
+                    .help("Capture Screenshot")
+                }
+
                 ToolbarItem {
                     Button(action: showPanel) {
                         Image(systemName: "rectangle.on.rectangle")
@@ -77,6 +87,7 @@ struct ContentView: View {
         loginItemService: LoginItemService(),
         maxHistoryLength: .constant(30),
         hotKeyPresetRawValue: .constant(HotKeyPreset.commandShiftV.rawValue),
-        showPanel: {}
+        showPanel: {},
+        showScreenshotOverlay: {}
     )
 }
